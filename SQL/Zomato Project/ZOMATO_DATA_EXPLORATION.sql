@@ -1,177 +1,231 @@
+use zommato_db;
 
-USE [project];
+-- Add the new column 'Country_Name' to the existing table
+ALTER TABLE zomatodata1
+ADD COLUMN Country_Name VARCHAR(255);
+
+-- Update the new column with data from the joined table
+UPDATE zomatodata1 cd
+LEFT JOIN zomato_country cn ON cd.CountryCode = cn.Country_Code
+SET cd.Country_Name = cn.Country;
+
+-- Verify the changes
+SELECT * FROM zomatodata1;
+
+-- select * from zomato_country;
+
+-- alter table zomato_country 
+-- change `Country Code` `Country_Code` int;
+-- describe zomato_country;
+
+
+
+
+-- ROLLING/MOVING COUNT OF RESTAURANTS IN INDIAN CITIES
+SELECT 
+    Country_Name,
+    City,
+    Locality,
+    COUNT(Locality) AS TOTAL_REST,
+    SUM(COUNT(Locality)) OVER (PARTITION BY City ORDER BY Locality DESC) AS ROLLING_COUNT
+FROM ZomatoData1
+WHERE Country_Name = 'INDIA'
+GROUP BY Country_Name, City, Locality;
+
+
+
+
+-- SEARCHING FOR PERCENTAGE OF RESTAURANTS IN ALL THE COUNTRIES
+CREATE OR REPLACE VIEW TOTAL_COUNT AS
+SELECT 
+    DISTINCT(Country_Name),
+    COUNT(CAST(RestaurantID AS UNSIGNED)) OVER() AS TOTAL_REST
+FROM ZomatoData1;
+
+SELECT * FROM TOTAL_COUNT;
+
+WITH CT1 AS (
+    SELECT Country_Name, COUNT(CAST(RestaurantID AS UNSIGNED)) AS REST_COUNT
+    FROM ZomatoData1
+    GROUP BY Country_Name
+)
+SELECT 
+    A.Country_Name,
+    A.REST_COUNT,
+    ROUND(A.REST_COUNT / B.TOTAL_REST * 100, 2) AS PERCENTAGE
+FROM CT1 A
+JOIN TOTAL_COUNT B ON A.Country_Name = B.Country_Name
+ORDER BY 3 DESC;
+
+
+
+
+
+-- WHICH COUNTRIES AND HOW MANY RESTAURANTS WITH PERCENTAGE PROVIDE ONLINE DELIVERY OPTION
+CREATE OR REPLACE VIEW COUNTRY_REST AS
+SELECT Country_Name, COUNT(CAST(RestaurantID AS UNSIGNED)) AS REST_COUNT
+FROM ZomatoData1
+GROUP BY Country_Name;
+
+SELECT * FROM COUNTRY_REST ORDER BY 2 DESC;
 
 SELECT 
-COLUMN_NAME, 
-DATA_TYPE 
-FROM INFORMATION_SCHEMA.COLUMNS
-where TABLE_NAME = 'ZomatoData1'																				-- Check Datatype of table
-
-
-SELECT DISTINCT(TABLE_CATALOG),TABLE_NAME FROM INFORMATION_SCHEMA.COLUMNS										-- CHECK TABLES IN ALL THE DATABSE
-SELECT * FROM INFORMATION_SCHEMA.COLUMNS
-
-SELECT * FROM [dbo].[ZomatoData1]
-
-
-
---CHECKING FOR DUPLICATE
-SELECT [RestaurantID],COUNT([RestaurantID]) FROM 
-[dbo].[ZomatoData1]
-GROUP BY [RestaurantID]
-ORDER BY 2 DESC
-
-SELECT * FROM ZOMATO_COUNTRY;
+    A.Country_Name,
+    COUNT(A.RestaurantID) AS TOTAL_REST,
+    ROUND(COUNT(A.RestaurantID) / CAST(B.REST_COUNT AS DECIMAL) * 100, 2) AS PERCENTAGE
+FROM ZomatoData1 A
+JOIN COUNTRY_REST B ON A.Country_Name = B.Country_Name
+WHERE A.Has_Online_delivery = 'YES'
+GROUP BY A.Country_Name, B.REST_COUNT
+ORDER BY 2 DESC;
 
 
 
---REMOVING UNWANTED ROWS
-DELETE FROM [dbo].[ZomatoData1] 
-WHERE [CountryCode] IN (' Bar',' Grill',' Bakers & More"',' Chowringhee Lane"',' Grill & Bar"',' Chinese')
 
-DELETE FROM [dbo].[ZomatoData1] 
-WHERE [RestaurantID] = '18306543'
+-- FINDING FROM WHICH CITY AND LOCALITY IN INDIA WHERE THE MAX RESTAURANTS ARE LISTED IN ZOMATO
+WITH CT1 AS (
+    SELECT City, Locality, COUNT(RestaurantID) AS REST_COUNT
+    FROM ZomatoData1
+    WHERE Country_Name = 'INDIA'
+    GROUP BY City, Locality
+)
+SELECT Locality, REST_COUNT
+FROM CT1
+WHERE REST_COUNT = (SELECT MAX(REST_COUNT) FROM CT1);
 
-SELECT * FROM [dbo].[ZomatoData1]
 
 
 
--- COUNTRY CODE COLUMN
-SELECT A.[CountryCode],B.COUNTRY
-FROM [dbo].[ZomatoData1] A JOIN [dbo].[ZOMATO_COUNTRY] B
-ON A.[CountryCode] = B.COUNTRYCODE
+-- TYPES OF FOODS ARE AVAILABLE IN INDIA WHERE THE MAX RESTAURANTS ARE LISTED IN ZOMATO
+WITH CT1 AS (
+    SELECT City, Locality, COUNT(RestaurantID) AS REST_COUNT
+    FROM ZomatoData1
+    WHERE Country_Name = 'INDIA'
+    GROUP BY City, Locality
+),
+CT2 AS (
+    SELECT Locality, REST_COUNT
+    FROM CT1
+    WHERE REST_COUNT = (SELECT MAX(REST_COUNT) FROM CT1)
+)
+SELECT A.Locality, B.Cuisines
+FROM CT2 A
+JOIN ZomatoData1 B ON A.Locality = B.Locality;
 
-ALTER TABLE [dbo].[ZomatoData1] ADD COUNTRY_NAME VARCHAR(50)
 
-UPDATE [dbo].[ZomatoData1] SET COUNTRY_NAME = B.COUNTRY								 -- MERGING AND ADDING COUNTRY DETAILS FROM DIFFERENT TABLE THROUGH UPDATE WITH JOIN STATEMENT
-FROM [dbo].[ZomatoData1] A JOIN [dbo].[ZOMATO_COUNTRY] B
-ON A.[CountryCode] = B.[COUNTRYCODE]
 
+WITH CT1 AS (
+    SELECT City, Locality, COUNT(RestaurantID) AS REST_COUNT
+    FROM ZomatoData1
+    WHERE Country_Name = 'INDIA'
+    GROUP BY City, Locality
+),
+CT2 AS (
+    SELECT Locality, REST_COUNT
+    FROM CT1
+    WHERE REST_COUNT = (SELECT MAX(REST_COUNT) FROM CT1)
+)
+SELECT A.Cuisines, COUNT(A.Cuisines)
+FROM VF A
+JOIN CT2 B ON A.Locality = B.Locality
+GROUP BY B.Locality, A.Cuisines
+ORDER BY 2 DESC;
+
+
+
+
+
+-- WHICH LOCALITIES IN INDIA HAVE THE LOWEST RESTAURANTS LISTED IN ZOMATO
+WITH CT1 AS (
+    SELECT City, Locality, COUNT(RestaurantID) AS REST_COUNT
+    FROM ZomatoData1
+    WHERE Country_Name = 'INDIA'
+    GROUP BY City, Locality
+)
+SELECT * FROM CT1 WHERE REST_COUNT = (SELECT MIN(REST_COUNT) FROM CT1) ORDER BY City;
+
+
+
+
+-- HOW MANY RESTAURANTS OFFER TABLE BOOKING OPTION IN INDIA WHERE THE MAX RESTAURANTS ARE LISTED IN ZOMATO
+WITH CT1 AS (
+    SELECT City, Locality, COUNT(RestaurantID) AS REST_COUNT
+    FROM ZomatoData1
+    WHERE Country_Name = 'INDIA'
+    GROUP BY City, Locality
+),
+CT2 AS (
+    SELECT Locality, REST_COUNT
+    FROM CT1
+    WHERE REST_COUNT = (SELECT MAX(REST_COUNT) FROM CT1)
+),
+CT3 AS (
+    SELECT Locality, Has_Table_booking
+    FROM ZomatoData1
+)
+SELECT A.Locality, COUNT(A.Has_Table_booking) AS TABLE_BOOKING_OPTION
+FROM CT3 A
+JOIN CT2 B ON A.Locality = B.Locality
+WHERE A.Has_Table_booking = 'YES'
+GROUP BY A.Locality;
+
+
+
+
+-- HOW RATING AFFECTS IN MAX LISTED RESTAURANTS WITH AND WITHOUT TABLE BOOKING OPTION (Connaught Place)
+SELECT 
+    'WITH_TABLE' AS TABLE_BOOKING_OPT,
+    COUNT(Has_Table_booking) AS TOTAL_REST,
+    ROUND(AVG(Rating), 2) AS AVG_RATING
+FROM ZomatoData1
+WHERE Has_Table_booking = 'YES'
+AND Locality = 'Connaught Place'
+UNION
+SELECT 
+    'WITHOUT_TABLE' AS TABLE_BOOKING_OPT,
+    COUNT(Has_Table_booking) AS TOTAL_REST,
+    ROUND(AVG(Rating), 2) AS AVG_RATING
+FROM ZomatoData1
+WHERE Has_Table_booking = 'NO'
+AND Locality = 'Connaught Place';
+
+
+
+
+-- AVG RATING OF RESTAURANTS LOCATION WISE
+SELECT 
+    Country_Name,
+    City,
+    Locality,
+    COUNT(RestaurantID) AS TOTAL_REST,
+    ROUND(AVG(CAST(Rating AS DECIMAL)), 2) AS AVG_RATING
+FROM ZomatoData1
+GROUP BY Country_Name, City, Locality
+ORDER BY TOTAL_REST DESC;
+
+
+
+
+-- FINDING THE BEST RESTAURANTS WITH MODERATE COST FOR TWO IN INDIA HAVING INDIAN CUISINES
 SELECT *
-FROM [dbo].[ZomatoData1]
+FROM ZomatoData1
+WHERE Country_Name = 'INDIA'
+AND Has_Table_booking = 'YES'
+AND Has_Online_delivery = 'YES'
+AND Price_range <= 3
+AND Votes > 1000
+AND Average_Cost_for_two < 1000
+AND Rating > 4
+AND Cuisines LIKE '%INDIA%';
 
 
 
---CITY COLUMN
-SELECT DISTINCT [City] FROM [dbo].[ZomatoData1] 
-WHERE CITY LIKE '%?%'																  --IDENTIFYING IF THERE ARE ANY MISS-SPELLED WORD
 
-SELECT REPLACE(CITY,'?','i') 
-FROM [ZomatoData1] WHERE CITY LIKE '%?%'											  --REPLACING MISS-SPELLED WORD
-
-UPDATE [dbo].[ZomatoData1] SET [City]  = REPLACE(CITY,'?','i') 
-					 FROM [ZomatoData1] WHERE CITY LIKE '%?%'	 			 -- UPDATING WITH REPLACE STRING FUNCTION
-
-SELECT [COUNTRY_NAME], CITY, COUNT([City]) TOTAL_REST							      -- COUNTING TOTAL REST. IN EACH CITY OF PARTICULAR COUNTRY
-FROM [dbo].[ZomatoData1]
-GROUP BY [COUNTRY_NAME],CITY 
-ORDER BY 1,2,3 DESC
-
-
-
---LOCALITY COLUMN
-SELECT CITY,[Locality], COUNT([Locality]) COUNT_LOCALITY,														-- ROLLING COUNT
-SUM(COUNT([Locality])) OVER(PARTITION BY [City] ORDER BY CITY,[Locality]) ROLL_COUNT
-FROM [dbo].[ZomatoData1]
-WHERE [COUNTRY_NAME] = 'INDIA'
-GROUP BY [Locality],CITY
-ORDER BY 1,2,3 DESC
-
-
-
---DROP COLUMN,[Locality],[LocalityVerbose][Address]
-ALTER TABLE [dbo].[ZomatoData1] DROP COLUMN [Address]
-ALTER TABLE [dbo].[ZomatoData1] DROP COLUMN [LocalityVerbose] 
-
-
-
--- CUISINES COLUMN 
-SELECT [Cuisines], COUNT([Cuisines]) FROM [dbo].[ZomatoData1]
-WHERE [Cuisines] IS NULL OR [Cuisines] = ' '
-GROUP BY [Cuisines]
-ORDER BY 2 DESC
-
-SELECT [Cuisines],COUNT([Cuisines])
-FROM [dbo].[ZomatoData1]
-GROUP BY [Cuisines]
-ORDER BY 2 DESC
-
-
--- CURRENCY COULMN
-SELECT [Currency], COUNT([Currency]) FROM [dbo].[ZomatoData1]
-GROUP BY [Currency]
-ORDER BY 2 DESC
-
-
-
--- YES/NO COLUMNS
-SELECT DISTINCT([Has_Table_booking]) FROM [dbo].[ZomatoData1]
-SELECT DISTINCT([Has_Online_delivery]) FROM [dbo].[ZomatoData1]
-SELECT DISTINCT([Is_delivering_now]) FROM [dbo].[ZomatoData1]
-SELECT DISTINCT([Switch_to_order_menu]) FROM [dbo].[ZomatoData1]
-
-
-
--- DROP COULLMN [Switch_to_order_menu]
-ALTER TABLE [dbo].[ZomatoData1] DROP COLUMN [Switch_to_order_menu]
-
-
-
--- PRICE RANGE COLUMN
-SELECT DISTINCT([Price_range]) FROM [dbo].[ZomatoData1]
-
-
-
--- VOTES COLUMN (CHECKING MIN,MAX,AVG OF VOTE COLUMN)
-ALTER TABLE [dbo].[ZomatoData1] ALTER COLUMN [Votes] INT
-
-SELECT MIN(CAST([Votes] AS INT)) MIN_VT,AVG(CAST([Votes] AS INT)) AVG_VT,MAX(CAST([Votes] AS INT)) MAX_VT
-FROM [dbo].[ZomatoData1]
-
-
-
--- COST COLUMN
-ALTER TABLE [dbo].[ZomatoData1] ALTER COLUMN [Average_Cost_for_two] FLOAT
-
-SELECT [Currency],MIN(CAST([Average_Cost_for_two] AS INT)) MIN_CST,
-AVG(CAST([Average_Cost_for_two] AS INT)) AVG_CST,
-MAX(CAST([Average_Cost_for_two] AS INT)) MAX_CST
-FROM [dbo].[ZomatoData1]
---WHERE [Currency] LIKE '%U%'
-GROUP BY [Currency]
-
-
-
---RATING COLUMN
-SELECT MIN([Rating]),
-ROUND(AVG(CAST([Rating] AS DECIMAL)),1), 
-MAX([Rating])  
-FROM [dbo].[ZomatoData1]
-
-SELECT CAST([Rating] AS decimal) NUM FROM [dbo].[ZomatoData1] WHERE CAST([Rating] AS decimal) >= 4
-
-ALTER TABLE [dbo].[ZomatoData1] ALTER COLUMN [Rating] DECIMAL
-
-SELECT RATING FROM [dbo].[ZomatoData1] WHERE [Rating] >= 4
-
-SELECT RATING,CASE
-WHEN [Rating] >= 1 AND [Rating] < 2.5 THEN 'POOR'
-WHEN [Rating] >= 2.5 AND [Rating] < 3.5 THEN 'GOOD'
-WHEN [Rating] >= 3.5 AND [Rating] < 4.5 THEN 'GREAT'
-WHEN [Rating] >= 4.5 THEN 'EXCELLENT'
-END RATE_CATEGORY
-FROM [dbo].[ZomatoData1]
-
-ALTER TABLE [dbo].[ZomatoData1] ADD RATE_CATEGORY VARCHAR(20)
-
-SELECT * FROM [dbo].[ZomatoData1]
-
-
-
---UPDATING NEW ADDED COLUMN WITH REFFERENCE OF AN EXISTING COLUMN
-UPDATE [dbo].[ZomatoData1] SET [RATE_CATEGORY] = (CASE								     	-- UPDATE WITH CASE-WHEN STATEMENT
-WHEN [Rating] >= 1 AND [Rating] < 2.5 THEN 'POOR'
-WHEN [Rating] >= 2.5 AND [Rating] < 3.5 THEN 'GOOD'
-WHEN [Rating] >= 3.5 AND [Rating] < 4.5 THEN 'GREAT'
-WHEN [Rating] >= 4.5 THEN 'EXCELLENT'
-END)
+-- FIND ALL THE RESTAURANTS THOSE WHO ARE OFFERING TABLE BOOKING OPTIONS WITH PRICE RANGE AND HAVE HIGH RATING
+SELECT 
+    Price_range,
+    COUNT(Has_Table_booking) AS NO_OF_REST
+FROM ZomatoData1
+WHERE Rating >= 4.5
+AND Has_Table_booking = 'YES'
+GROUP BY Price_range;
